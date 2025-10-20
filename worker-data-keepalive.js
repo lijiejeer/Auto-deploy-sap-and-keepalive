@@ -12,10 +12,10 @@ let DATABRICKS_TOKEN = "你的Databricks访问令牌"; // 在 Worker 环境变�
 const MONITORED_APPS = [
   {
     // 健康检查建议使用应用访问域名（启动后页面）：
-    url: "https://databricksapp01-3607529273444022.aws.databricksapps.com/",
+    url: "https://databricksapp01-36076555673444022.aws.databricksapps.com/",
     name: "databricksapp01",
     type: "databricks",
-    host: "https://dbc-ba852385-a3cb.cloud.databricks.com",
+    host: "https://dbc-ba98585-a3cb.cloud.databricks.com",
     workspaceId: "",
     appName: "databricksapp01",
     appId: "" // 可选：如已知 AppID，可填入以通过 ID 启动
