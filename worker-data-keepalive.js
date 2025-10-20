@@ -1,6 +1,6 @@
 // Databricks App keepalive Cloudflare Worker
 // 参照 _worker-keep.js 样式：提供首页、/status、/start、/check 等端点
-// 并新增 /logs 日志查询功能（支持检索、限制条数、HTML/JSON 两种格式）
+// 并新增 /logs 日志查询功能（支持检索、限制条数，HTML 页面）
 
 // ============ 基础配置（可使用 Worker 环境变量覆盖）============
 let DATABRICKS_TOKEN = "你的Databricks访问令牌"; // 在 Worker 环境变量中设置 DATABRICKS_TOKEN
@@ -160,7 +160,7 @@ function generateStatusPage(apps) {
       <h1>Databricks App 保活监控</h1>
       <div>自动检测容器停止并自动启动，支持日志查询</div>
     </header>
-    <div class="actions"><button class="btn" onclick="location.reload()">刷新状态</button> <a class="btn" style="text-decoration:none" href="/logs?format=html" target="_blank">查看日志</a></div>
+    <div class="actions"><button class="btn" onclick="location.reload()">刷新状态</button> <a class="btn" style="text-decoration:none" href="/logs" target="_blank">查看日志</a></div>
     <div class="grid">${cards}</div>
     <div class="meta">最后更新：${formattedDate}</div>
     <footer>© ${new Date().getFullYear()} Auto-SAP/Databricks Keepalive</footer>
@@ -229,7 +229,8 @@ async function monitorAllApps(reason = 'unknown') {
 
 // ============ 日志查询 ============
 function renderLogsHTML(rows) {
-  const items = rows.map(r => `<tr><td>${r.ts}</td><td>${r.level}</td><td>${escapeHtml(r.msg)}</td></tr>`).join('');
+  const cn = { INFO: '成功', WARN: '警告', ERROR: '失败' };
+  const items = rows.map(r => `<tr><td>${r.ts}</td><td>${cn[r.level] || r.level}</td><td>${escapeHtml(r.msg)}</td></tr>`).join('');
   return `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -249,9 +250,9 @@ function renderLogsHTML(rows) {
 </head>
 <body>
   <h1>Keepalive 日志</h1>
-  <div class="meta">共 ${rows.length} 条 | <span class="controls"><a href="/logs?format=json">JSON</a> <a href="/">返回首页</a></span></div>
+  <div class="meta">共 ${rows.length} 条 | <span class="controls"><a href="/">返回首页</a></span></div>
   <table>
-    <thead><tr><th>时间</th><th>级别</th><th>内容</th></tr></thead>
+    <thead><tr><th>时间</th><th>状态</th><th>内容</th></tr></thead>
     <tbody>${items}</tbody>
   </table>
 </body>
@@ -323,12 +324,8 @@ export default {
       }
 
       if (path === '/logs') {
-        const format = (url.searchParams.get('format') || 'json').toLowerCase();
         const rows = queryLogs(url.searchParams);
-        if (format === 'html') {
-          return new Response(renderLogsHTML(rows), { headers: { 'content-type': 'text/html;charset=UTF-8' } });
-        }
-        return json({ ok: true, count: rows.length, logs: rows });
+        return new Response(renderLogsHTML(rows), { headers: { 'content-type': 'text/html;charset=UTF-8' } });
       }
 
       return new Response('Databricks App Keepalive Worker 运行中');

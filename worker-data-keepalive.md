@@ -6,7 +6,7 @@
 - 参照 `_worker-keep.js` 的结构，提供：
   - 首页状态页（`/`）：直观查看各 App 的运行状态
   - API：`/status`（状态 JSON）、`/start`（手动触发检查与启动）、`/check`（配置自检）
-  - 新增日志查询：`/logs`（支持 HTML/JSON、关键词检索、级别筛选、时间过滤、条数限制）
+  - 新增日志查询：`/logs`（HTML 页面，支持关键词检索、级别筛选、时间过滤、条数限制）
 - 健康检查规则：将 HTTP 200、302 视为“健康”（Databricks 未登录时可能重定向到登录页），其余状态视为异常
 - 自动启动：使用 Databricks API（多条备选启动路径，逐一尝试），无感恢复
 
@@ -65,19 +65,18 @@ const MONITORED_APPS = [
 - `/status`：返回 JSON 形式的状态
 - `/start`：手动触发一次“检查并启动”，在后台执行
 - `/check`：返回当前监控配置与时间戳
-- `/logs`：查询运行日志（默认 JSON），支持参数：
-  - `format`：`html` 或 `json`（默认 `json`）
+- `/logs`：查询运行日志（HTML 页面），支持参数：
   - `q`：关键词模糊匹配（搜索日志文本）
   - `level`：`INFO` | `WARN` | `ERROR`
   - `limit`：返回条数 1～500（默认 100）
   - `since`：起始时间（ISO 8601），例如：`2025-10-20T00:00:00Z`
 
 常用示例：
-- 查看 HTML 日志：`/logs?format=html`
+- 查看日志：`/logs`
 - 只看错误日志：`/logs?level=ERROR&limit=100`
 - 关键字检索：`/logs?q=start&limit=50`
 - 时间过滤：`/logs?since=2025-10-20T00:00:00Z`
-- 综合示例：`/logs?format=html&q=app-check&level=INFO&limit=200&since=2025-10-20T08:00:00Z`
+- 综合示例：`/logs?q=app-check&level=INFO&limit=200&since=2025-10-20T08:00:00Z`
 
 命令行示例（以 `/status` 为例）：
 ```bash
