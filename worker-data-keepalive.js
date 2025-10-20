@@ -68,12 +68,17 @@ async function fetchWithTimeout(resource, options = {}) {
 async function checkAppUrl(appUrl) {
   try {
     const res = await fetchWithTimeout(appUrl, { method: 'GET', redirect: 'follow', timeout: 30000 });
-    log.info(`[app-check] ${appUrl} -> ${res.status}`);
-    // Databricks 工作区应用在未登录时通常会 302/401/403，但只要容器停止往往返回 404 或 5xx
-    // 这里我们将 200/302 视为“健康”，其它视为异常
-    return [200, 302].includes(res.status);
+    const healthy = [200, 302].includes(res.status);
+    if (healthy) {
+      log.info(`[app-check] ${appUrl} -> ${res.status}`);
+    } else if (res.status >= 500) {
+      log.error(`[app-check] ${appUrl} -> ${res.status}`);
+    } else {
+      log.warn(`[app-check] ${appUrl} -> ${res.status}`);
+    }
+    return healthy;
   } catch (err) {
-    log.warn(`[app-check] ${appUrl} error: ${err.message}`);
+    log.error(`[app-check] ${appUrl} error: ${err.message}`);
     return false;
   }
 }
@@ -182,6 +187,9 @@ async function ensureAppRunning(app, reason = 'unknown') {
     return { app: name, status: 'healthy', url };
   }
 
+  // 已检测到异常
+  log.warn(`[decision] ${name} 状态异常，准备启动`);
+
   // 步骤2：尝试启动（仅对 type=databricks 启动）
   if (type === 'databricks') {
     const host = app.host || parseDatabricksHost(url);
@@ -202,7 +210,7 @@ async function ensureAppRunning(app, reason = 'unknown') {
       log.info(`[success] ${name} 启动成功`);
       return { app: name, status: 'started', url };
     } else {
-      log.warn(`[warn] ${name} 启动后仍未就绪，稍后可能会恢复`);
+      log.error(`[fail] ${name} 启动后仍未就绪，稍后可能会恢复`);
       return { app: name, status: 'started_but_unhealthy', url };
     }
   }
@@ -229,8 +237,9 @@ async function monitorAllApps(reason = 'unknown') {
 
 // ============ 日志查询 ============
 function renderLogsHTML(rows) {
-  const cn = { INFO: '成功', WARN: '警告', ERROR: '失败' };
-  const items = rows.map(r => `<tr><td>${r.ts}</td><td>${cn[r.level] || r.level}</td><td>${escapeHtml(r.msg)}</td></tr>`).join('');
+  const cn = { INFO: '成功', WARN: '异常', ERROR: '失败' };
+  const cls = { INFO: 'st-success', WARN: 'st-warn', ERROR: 'st-error' };
+  const items = rows.map(r => `<tr><td>${r.ts}</td><td class="st ${cls[r.level] || ''}">${cn[r.level] || r.level}</td><td>${escapeHtml(r.msg)}</td></tr>`).join('');
   return `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -246,6 +255,10 @@ function renderLogsHTML(rows) {
     th{background:#f7f7f7}
     .meta{color:#777; font-size:12px; margin: 10px 0 20px}
     .controls a{display:inline-block; margin-right: 8px;}
+    .st{font-weight:600}
+    .st-success{color:#4CAF50}
+    .st-warn{color:#FF9800}
+    .st-error{color:#F44336}
   </style>
 </head>
 <body>

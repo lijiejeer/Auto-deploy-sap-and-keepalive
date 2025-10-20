@@ -65,15 +65,15 @@ const MONITORED_APPS = [
 - `/status`：返回 JSON 形式的状态
 - `/start`：手动触发一次“检查并启动”，在后台执行
 - `/check`：返回当前监控配置与时间戳
-- `/logs`：查询运行日志（HTML 页面），支持参数：
+- `/logs`：查询运行日志（HTML 页面，状态中文+颜色区分），支持参数：
   - `q`：关键词模糊匹配（搜索日志文本）
-  - `level`：`INFO` | `WARN` | `ERROR`
+  - `level`：`INFO` | `WARN` | `ERROR`（页面显示分别对应“成功 / 异常 / 失败”，颜色为绿色 / 橙色 / 红色）
   - `limit`：返回条数 1～500（默认 100）
   - `since`：起始时间（ISO 8601），例如：`2025-10-20T00:00:00Z`
 
 常用示例：
 - 查看日志：`/logs`
-- 只看错误日志：`/logs?level=ERROR&limit=100`
+- 只看失败日志：`/logs?level=ERROR&limit=100`
 - 关键字检索：`/logs?q=start&limit=50`
 - 时间过滤：`/logs?since=2025-10-20T00:00:00Z`
 - 综合示例：`/logs?q=app-check&level=INFO&limit=200&since=2025-10-20T08:00:00Z`
