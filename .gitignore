@@ -1,0 +1,23 @@
+# General
+.DS_Store
+Thumbs.db
+
+# Node/JS common
+node_modules/
+dist/
+build/
+coverage/
+.nyc_output/
+
+# Env/config
+.env
+.env.*
+*.local
+
+# Editor/OS
+.vscode/
+.idea/
+*.log
+
+# Git
+*.orig
