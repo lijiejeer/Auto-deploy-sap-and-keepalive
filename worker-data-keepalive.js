@@ -6,16 +6,19 @@
 let DATABRICKS_TOKEN = "你的Databricks访问令牌"; // 在 Worker 环境变量中设置 DATABRICKS_TOKEN
 
 // 监控目标（可配置多个）
-// 对于 Databricks Workspace 的 Lakehouse App，可直接填入你的 App 页面 URL 和名称
-// host 可留空（将从 url 中自动解析），workspaceId 可留空（可从 ?o=xxx 参数自动解析）
+// 对于 Databricks Workspace 的 Lakehouse App，可直接填入你的 App 页面 URL 或 App 访问域名
+// host 为工作区 API 主机（https://dbc-*.cloud.databricks.com），用于调用启动 API；
+// workspaceId 可留空（可从 ?o=xxx 或 databricksapps.com 的域名自动解析）
 const MONITORED_APPS = [
   {
-    url: "https://dbc-ba852385-a3cb.cloud.databricks.com/apps/databricksapp01?o=3607529273444022",
+    // 健康检查建议使用应用访问域名（启动后页面）：
+    url: "https://databricksapp01-3607529273444022.aws.databricksapps.com/",
     name: "databricksapp01",
     type: "databricks",
-    host: "",
+    host: "https://dbc-ba852385-a3cb.cloud.databricks.com",
     workspaceId: "",
-    appName: "databricksapp01"
+    appName: "databricksapp01",
+    appId: "" // 可选：如已知 AppID，可填入以通过 ID 启动
   }
 ];
 
@@ -56,6 +59,40 @@ function parseWorkspaceId(urlStr) {
     return u.searchParams.get('o') || '';
   } catch (e) {
     return '';
+  }
+}
+
+function parseAppInfoFromAppsDomain(urlStr) {
+  // 解析形如： https://<appName>-<workspaceId>.<provider>.databricksapps.com/
+  try {
+    const u = new URL(urlStr);
+    const host = u.hostname || '';
+    if (!host.endsWith('databricksapps.com')) return { appName: '', workspaceId: '' };
+    const parts = host.split('.');
+    // 例如：[ 'databricksapp01-3607529273444022', 'aws', 'databricksapps', 'com' ]
+    const first = parts[0] || '';
+    const idx = first.lastIndexOf('-');
+    if (idx > 0) {
+      const appName = first.slice(0, idx);
+      const workspaceId = first.slice(idx + 1);
+      return { appName, workspaceId };
+    }
+    return { appName: '', workspaceId: '' };
+  } catch (e) {
+    return { appName: '', workspaceId: '' };
+  }
+}
+
+function enrichAppConfig(app) {
+  // 若未提供 workspaceId/appName，尝试从 URL 自动解析
+  if (app && app.url) {
+    const { appName, workspaceId } = parseAppInfoFromAppsDomain(app.url);
+    if (!app.workspaceId && workspaceId) app.workspaceId = workspaceId;
+    if (!app.appName && appName) app.appName = appName;
+    if (!app.name && appName) app.name = appName;
+    // 若 URL 中包含 ?o=xxx，优先使用该值填充 workspaceId
+    const wid = parseWorkspaceId(app.url);
+    if (wid) app.workspaceId = wid;
   }
 }
 
@@ -110,6 +147,72 @@ async function dbxStartApp(host, token, appName, workspaceId = '') {
     }
   }
   throw new Error('无法通过已知 API 启动 Databricks App，请检查主机、令牌和权限');
+}
+
+async function dbxStartAppGeneric(host, token, { appName, appId }, workspaceId = '') {
+  const headers = { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' };
+
+  // 构造候选请求：优先使用 ID，其次使用名称；再尝试 body 传参的 start 接口
+  const pathFromId = appId ? [
+    `/api/2.0/apps/${encodeURIComponent(appId)}/start`,
+    `/api/2.0/lakehouse/apps/${encodeURIComponent(appId)}/start`,
+    `/api/2.1/apps/${encodeURIComponent(appId)}/start`,
+  ] : [];
+
+  const pathFromName = appName ? [
+    `/api/2.0/apps/${encodeURIComponent(appName)}/start`,
+    `/api/2.0/lakehouse/apps/${encodeURIComponent(appName)}/start`,
+    `/api/2.1/apps/${encodeURIComponent(appName)}/start`,
+  ] : [];
+
+  const startEndpoints = [
+    `/api/2.0/apps/start`,
+    `/api/2.0/lakehouse/apps/start`,
+    `/api/2.1/apps/start`
+  ];
+
+  const payloads = [];
+  if (appId) payloads.push({ app_id: appId });
+  if (appName) payloads.push({ name: appName });
+
+  // 1) 路径形式（/apps/{id|name}/start）
+  const pathList = [...pathFromId, ...pathFromName];
+  for (const p of pathList) {
+    const url = `${host}${p}`;
+    try {
+      const body = workspaceId ? JSON.stringify({ workspace_id: workspaceId }) : null;
+      const resp = await fetch(url, { method: 'POST', headers, body });
+      const text = await resp.text();
+      if (resp.ok) {
+        log.info(`[dbx-start:PATH] OK ${resp.status} via ${p}`);
+        return true;
+      }
+      log.warn(`[dbx-start:PATH] ${resp.status} ${p}: ${text.substring(0,200)}`);
+    } catch (e) {
+      log.warn(`[dbx-start:PATH] error on ${p}: ${e.message}`);
+    }
+  }
+
+  // 2) body 形式（/apps/start）
+  for (const ep of startEndpoints) {
+    for (const base of payloads) {
+      const payload = workspaceId ? { ...base, workspace_id: workspaceId } : base;
+      const url = `${host}${ep}`;
+      try {
+        const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
+        const text = await resp.text();
+        if (resp.ok) {
+          log.info(`[dbx-start:BODY] OK ${resp.status} via ${ep} payload=${JSON.stringify(base)}`);
+          return true;
+        }
+        log.warn(`[dbx-start:BODY] ${resp.status} ${ep}: ${text.substring(0,200)} payload=${JSON.stringify(base)}`);
+      } catch (e) {
+        log.warn(`[dbx-start:BODY] error on ${ep} payload=${JSON.stringify(base)}: ${e.message}`);
+      }
+    }
+  }
+
+  throw new Error('无法通过已知 API（ID/Name/Body）启动 Databricks App，请检查主机、令牌、权限与 API 版本');
 }
 
 // ============ 页面渲染 ============
@@ -192,6 +295,9 @@ async function ensureAppRunning(app, reason = 'unknown') {
 
   // 步骤2：尝试启动（仅对 type=databricks 启动）
   if (type === 'databricks') {
+    // 从 URL 自动补齐 appName / workspaceId
+    enrichAppConfig(app);
+
     const host = app.host || parseDatabricksHost(url);
     const workspaceId = app.workspaceId || parseWorkspaceId(url);
     const token = DATABRICKS_TOKEN;
@@ -200,8 +306,8 @@ async function ensureAppRunning(app, reason = 'unknown') {
       return { app: name, status: 'unhealthy_no_token', url };
     }
 
-    log.info(`[action] 调用 Databricks API 启动应用 ${name}`);
-    await dbxStartApp(host, token, app.appName || name, workspaceId);
+    log.info(`[action] 调用 Databricks API 启动应用 ${app.appId ? `(ID=${app.appId})` : (app.appName || name)}`);
+    await dbxStartAppGeneric(host, token, { appName: app.appName || name, appId: app.appId }, workspaceId);
 
     // 等待一会再检查
     await sleep(8000);

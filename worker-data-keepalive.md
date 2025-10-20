@@ -36,25 +36,30 @@
 - `url`：应用访问地址（建议带上 `?o=<workspaceId>` 参数，便于自动解析）
 - `name`：在状态页展示的名称
 - `type`：固定为 `"databricks"`
-- `host`：（可选）Databricks 主机地址（如留空将从 `url` 自动解析）
-- `workspaceId`：（可选）工作区 ID（如留空将从 `url` 的 `o` 参数自动解析）
+- `host`：Databricks 工作区主机（形如 `https://dbc-xxxx.cloud.databricks.com`），用于调用启动 API（必需，无法从 databricksapps.com 域名反推出）
+- `workspaceId`：（可选）工作区 ID（可从 `url` 的 `?o=xxx` 或 `*.databricksapps.com` 域名自动解析）
 - `appName`：（可选）Databricks App 的名称（用于调用启动 API；如留空使用 `name`）
+- `appId`：（可选）App 的 ID（优先使用 ID 启动；若未知则用名称）
 
 示例：
 ```js
 const MONITORED_APPS = [
   {
-    url: "https://dbc-ba852385-a3cb.cloud.databricks.com/apps/databricksapp01?o=3607529273444022",
+    // 建议将健康检查指向应用访问域名（databricksapps.com），脚本可从域名中自动解析 appName/workspaceId
+    url: "https://databricksapp01-3607529273444022.aws.databricksapps.com/",
     name: "databricksapp01",
     type: "databricks",
-    host: "",          // 可留空，自动解析
-    workspaceId: "",   // 可留空，自动解析
-    appName: "databricksapp01"
+    host: "https://dbc-ba852385-a3cb.cloud.databricks.com", // 必填：工作区主机
+    workspaceId: "",   // 可留空：自动解析（域名或 ?o=xxx）
+    appName: "databricksapp01", // 可留空：自动解析（域名）
+    appId: ""          // 可选：如已知 AppID，可填写以通过 ID 启动
   },
   {
-    url: "https://dbc-xxxxxxx.cloud.databricks.com/apps/app02?o=1234567890123456",
+    url: "https://app02-1234567890123456.azure.databricksapps.com/",
     name: "app02",
-    type: "databricks"
+    type: "databricks",
+    host: "https://dbc-xxxxxxx.cloud.databricks.com",
+    // workspaceId/appName/appId 可按需填写或留空自动解析
   }
 ];
 ```
@@ -88,9 +93,9 @@ curl https://<your-worker>.<subdomain>.workers.dev/status
    - 返回 `200` 或 `302` → 判定为“健康”（未登录时 Databricks 往往重定向到登录页）
    - 其它状态或网络错误 → 判定为“异常”，进入启动流程
 2. 启动流程：调用 Databricks API 启动 App（依次尝试多条候选 Endpoint）
-   - `/api/2.0/apps/{appName}/start`
-   - `/api/2.0/lakehouse/apps/{appName}/start`
-   - `/api/2.1/apps/{appName}/start`
+   - 按 ID：`/api/{2.0|2.1}/(lakehouse/)?apps/{appId}/start`
+   - 按名称：`/api/{2.0|2.1}/(lakehouse/)?apps/{appName}/start`
+   - body 方式：`/api/{2.0|2.1}/(lakehouse/)?apps/start`（payload 会尝试 `{ app_id }` 或 `{ name }`，并附带 `workspace_id`）
    - 使用 `Authorization: Bearer <DATABRICKS_TOKEN>` 进行鉴权
    - 如提供 `workspaceId`，会以 JSON 形式在请求体中添加 `{ workspace_id: <id> }`
 3. 启动后等待 8 秒并二次检查 URL 状态，记录结果与日志
